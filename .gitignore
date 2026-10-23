@@ -1,0 +1,8 @@
+.env
+.env.*
+!*.env.example
+node_modules/
+client/dist/
+
+# your uploaded catalog photos + product list
+server/data/

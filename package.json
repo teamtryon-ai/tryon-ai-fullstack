@@ -1,0 +1,14 @@
+{
+  "name": "myntra-ai-fullstack",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MyntraAI Body-Calibrated Virtual Try-On (React + Vite + Express + MongoDB + NanoBananaAPI)",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build:client": "npm --prefix client run build",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start"
+  }
+}

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: myntra-ai-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB_NAME
+        value: myntra_ai_tryon
+      - key: NANOBANANA_API_KEY
+        sync: false
+      - key: NANOBANANA_PUBLIC_BASE_URL
+        sync: false
+      - key: NANOBANANA_TUNNEL_RESTRICT_MODE
+        value: false
+      - key: CLIENT_ORIGIN
+        sync: false

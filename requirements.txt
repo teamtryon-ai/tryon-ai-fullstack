@@ -1,0 +1,36 @@
+# MyntraAI Virtual Try-On — requirements
+#
+# This is a Node.js project, so there is nothing to "pip install".
+# npm installs the packages below from server/package.json and client/package.json:
+#   npm run install:all        (from the project root)
+# Versions shown are the ones currently installed and tested.
+
+# ---------------- System ----------------
+node >= 20            # tested with 22.18.0
+npm >= 10             # tested with 10.9.3
+cloudflared           # or another HTTPS tunnel; only for local development
+
+# ---------------- External services ----------------
+MongoDB Atlas database          # MONGODB_URI in server/.env
+NanoBananaAPI key with credits  # NANOBANANA_API_KEY in server/.env
+Public HTTPS URL to the backend # NANOBANANA_PUBLIC_BASE_URL in server/.env
+
+# ---------------- Backend (server/) ----------------
+express==4.22.3
+mongoose==8.24.6
+sharp==0.35.5
+cors==2.8.6
+dotenv==16.6.1
+@google/genai==2.30.0   # unused leftover from Gemini; safe to remove
+
+# ---------------- Frontend (client/) ----------------
+react==18.3.1
+react-dom==18.3.1
+lucide-react==0.400.0
+
+# Frontend build tools (devDependencies)
+vite==5.4.21
+@vitejs/plugin-react==4.7.0
+tailwindcss==3.4.19
+postcss==8.5.31
+autoprefixer==10.6.1
