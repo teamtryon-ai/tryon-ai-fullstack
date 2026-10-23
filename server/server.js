@@ -517,26 +517,12 @@ async function submitAndWaitForNanoBanana({ prompt, images, imageSize = '1:1' })
       console.log(`[tryon] saved the exact input images to ${dir}`);
     }
     const imageUrls = images.map(({ buffer, mimeType, label }) => {
-      const item = createTemporaryImageUrl(buffer, mimeType || 'image/jpeg', publicBaseUrl, label);
-      temporaryTokens.push(item.token);
-      return item.url;
-    });
+      const faceSwapPrompt = `CRITICAL TASK: Full Face Swap and Head Replacement. 
+You are given 2 images:
+INPUT IMAGE 1: Catalog fashion photo (keep the outfit, background, pose, and lighting EXACTLY as they are).
+INPUT IMAGE 2: User face reference.
 
-    const submitted = await requestNanoBananaJson(`${NANOBANANA_API_BASE}/generate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        prompt,
-        type: 'IMAGETOIAMGE',
-        numImages: 1,
-        imageUrls,
-        image_size: imageSize,
-        callBackUrl: callbackUrl
-      })
-    });
+INSTRUCTION: You MUST completely replace the head and face of the model in INPUT IMAGE 1 with the exact face, facial features, eyes, nose, lips, jawline, and hair from INPUT IMAGE 2. The final person in the generated image must look 100% like the person in INPUT IMAGE 2. Do not keep the original model's face at all. Maintain high photorealism, matching skin tone seamlessly to the neck.`;
 
     const taskId = submitted?.data?.taskId || submitted?.taskId;
     if (Number(submitted?.code) !== 200 || !taskId) {
