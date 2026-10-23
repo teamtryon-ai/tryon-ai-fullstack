@@ -33,10 +33,6 @@ app.use(
 
 app.use(express.json({ limit: '15mb' }));
 
-// When exposing a local development backend through a public HTTPS tunnel, restrict
-// requests arriving through that tunnel to the temporary image fetch/callback routes.
-// Local browser requests use localhost and remain unaffected. Enable this only for
-// local tunnel development; deployed public backends need their own authentication.
 app.use((req, res, next) => {
   if (String(process.env.NANOBANANA_TUNNEL_RESTRICT_MODE).toLowerCase() !== 'true') return next();
   const rawPublicBase = process.env.NANOBANANA_PUBLIC_BASE_URL?.trim();
@@ -149,14 +145,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ================= PRODUCT CATALOG (your own products + photos) =================
-// Products live in server/data/products.json and their photos in server/data/uploads/.
-// The frontend reads them through /api/products, so frontend and backend always show the
-// same photos. When MongoDB is connected the list is mirrored there too.
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const CATALOG_FILE = path.join(DATA_DIR, 'products.json');
-const FIRST_PRODUCT_ID = 1000; // above any id used by the old built-in catalog, so old cached try-ons never collide
+const FIRST_PRODUCT_ID = 1000;
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 function readCatalogFile() {
@@ -207,7 +199,6 @@ app.get('/api/products/:id', (req, res) => {
   res.json(product);
 });
 
-// Add a product with your own photo. Body: { imageBase64, brand, name, category, price, originalPrice? }
 app.post('/api/products', async (req, res) => {
   try {
     const { imageBase64, brand, name, category } = req.body || {};
@@ -222,7 +213,6 @@ app.post('/api/products', async (req, res) => {
     const input = decodeBase64Image(imageBase64, 'imageBase64');
     let jpeg;
     try {
-      // Same 3:4 framing the try-on pipeline uses, so the catalog photo and generated photos match.
       jpeg = await fitToCatalogFrame(input, 700).jpeg({ quality: 88 }).toBuffer();
     } catch {
       return res.status(400).json({ error: 'The uploaded file is not a valid JPEG, PNG or WEBP image.' });
@@ -278,7 +268,6 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
-// ================= PROFILE REST API ROUTES =================
 app.get('/api/profiles', async (req, res) => {
   if (!isMongoConnected) {
     return res.status(503).json({ error: 'MongoDB is not connected. Configure MONGODB_URI in server/.env.' });
@@ -297,7 +286,6 @@ app.post('/api/profiles', async (req, res) => {
   }
   try {
     const { id, fullName, photoData } = req.body;
-    // Only accept known profile fields; ignore anything else the client sends.
     const PROFILE_FIELDS = ['email', 'gender', 'heightCm', 'weightKg', 'chestInches', 'waistInches', 'hipInches', 'bodyType', 'categoryFaces'];
     const rest = {};
     for (const field of PROFILE_FIELDS) {
@@ -366,9 +354,6 @@ app.get('/api/tryon/history/:profileId', async (req, res) => {
 });
 
 // ================= NANOBANANA API IMAGE/TASK HELPERS =================
-// NanoBananaAPI's documented image-edit endpoint accepts image URLs (not local base64
-// blobs), and generation runs asynchronously through a task ID. Temporary images are
-// served via high-entropy, short-lived URLs by this backend.
 const NANOBANANA_API_BASE = 'https://api.nanobananaapi.ai/api/v1/nanobanana';
 const TEMP_IMAGE_TTL_MS = 10 * 60 * 1000;
 const MAX_PROVIDER_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -396,10 +381,7 @@ function getNanoBananaConfig() {
 
   const rawBaseUrl = process.env.NANOBANANA_PUBLIC_BASE_URL?.trim();
   if (!rawBaseUrl) {
-    throw httpError(
-      'NANOBANANA_PUBLIC_BASE_URL is missing. NanoBananaAPI must be able to fetch temporary images from a public HTTPS backend URL. For local development, expose port 5000 through an HTTPS tunnel and set this variable to that tunnel URL.',
-      503
-    );
+    throw httpError('NANOBANANA_PUBLIC_BASE_URL is missing.', 503);
   }
 
   let publicBaseUrl;
@@ -446,7 +428,7 @@ app.get('/api/tryon/temp-image/:token', (req, res) => {
     return res.status(404).end();
   }
   entry.fetchCount += 1;
-  console.log(`[tryon] provider fetched "${entry.label}" (${entry.buffer.length} bytes, fetch #${entry.fetchCount}, UA: ${String(req.get('user-agent') || '').slice(0, 60)})`);
+  console.log(`[tryon] provider fetched "${entry.label}" (${entry.buffer.length} bytes, fetch #${entry.fetchCount})`);
   res.set({
     'Content-Type': entry.mimeType,
     'Content-Length': String(entry.buffer.length),
@@ -456,14 +438,10 @@ app.get('/api/tryon/temp-image/:token', (req, res) => {
   return res.status(200).send(entry.buffer);
 });
 
-// The provider requires a callback URL. We acknowledge callbacks but poll task status
-// ourselves so browser responses remain deterministic even if callbacks arrive late.
 app.post('/api/tryon/nanobanana/callback', (req, res) => res.status(200).json({ ok: true }));
 
 async function requestNanoBananaJson(url, options, timeoutMs = 45000) {
   const isPost = String(options?.method || 'GET').toUpperCase() === 'POST';
-  // Status polls (GET) are safe to retry on gateway errors; the submit (POST) is never
-  // retried automatically, so a task is never created (and billed) twice.
   const maxAttempts = isPost ? 1 : 3;
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -472,7 +450,7 @@ async function requestNanoBananaJson(url, options, timeoutMs = 45000) {
       response = await fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
     } catch (error) {
       if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
-        lastError = httpError('NanoBananaAPI request timed out. Please retry after checking your connection.', 504);
+        lastError = httpError('NanoBananaAPI request timed out.', 504);
       } else {
         lastError = httpError(`Could not reach NanoBananaAPI: ${error?.message || 'network error'}`, 502);
       }
@@ -487,15 +465,14 @@ async function requestNanoBananaJson(url, options, timeoutMs = 45000) {
     if (!failed) return body;
 
     const where = `${isPost ? 'POST' : 'GET'} ${new URL(url).pathname}`;
-    console.error(`[tryon] NanoBanana ${where} -> HTTP ${response.status}, attempt ${attempt}/${maxAttempts}, body: ${rawText.slice(0, 500) || '(empty)'}`);
+    console.error(`[tryon] NanoBanana ${where} -> HTTP ${response.status}, attempt ${attempt}/${maxAttempts}`);
     if (response.status === 401 || response.status === 403 || providerCode === 401) {
-      throw httpError('NanoBananaAPI rejected the API key. Check NANOBANANA_API_KEY in server/.env.', 502);
+      throw httpError('NanoBananaAPI rejected the API key.', 502);
     }
     if (response.status === 429 || providerCode === 429) {
-      throw httpError('NanoBananaAPI rate limit or credit limit reached. Check your provider account and retry later.', 429);
+      throw httpError('NanoBananaAPI rate limit reached.', 429);
     }
-    const codeText = response.ok ? ` (provider code ${providerCode})` : ` (HTTP ${response.status})`;
-    lastError = httpError(`${body?.msg || 'NanoBananaAPI request failed'} at ${where}${codeText}.`, 502);
+    lastError = httpError(`${body?.msg || 'NanoBananaAPI request failed'}`, 502);
     const transient = [502, 503, 504].includes(response.status);
     if (transient && attempt < maxAttempts) { await new Promise((r) => setTimeout(r, 1500 * attempt)); continue; }
     throw lastError;
@@ -507,22 +484,28 @@ async function submitAndWaitForNanoBanana({ prompt, images, imageSize = '1:1' })
   const { apiKey, publicBaseUrl, callbackUrl } = getNanoBananaConfig();
   const temporaryTokens = [];
   try {
-    console.log(`[tryon] sending ${images.length} image(s) to NanoBanana in this order: ` +
-      images.map(({ label, buffer }, i) => `#${i + 1} ${label || 'image'} (${buffer.length} bytes)`).join(', '));
-    console.log(`[tryon] prompt: ${prompt.slice(0, 200).replace(/\s+/g, ' ')}...`);
-    if (String(process.env.DEBUG_SAVE_TRYON_INPUTS).toLowerCase() === 'true') {
-      const dir = path.join(__dirname, 'debug');
-      fs.mkdirSync(dir, { recursive: true });
-      images.forEach(({ label, buffer }, i) => fs.writeFileSync(path.join(dir, `${Date.now()}-${i + 1}-${label || 'image'}.jpg`), buffer));
-      console.log(`[tryon] saved the exact input images to ${dir}`);
-    }
+    console.log(`[tryon] sending ${images.length} image(s) to NanoBanana`);
     const imageUrls = images.map(({ buffer, mimeType, label }) => {
-      const faceSwapPrompt = `CRITICAL TASK: Full Face Swap and Head Replacement. 
-You are given 2 images:
-INPUT IMAGE 1: Catalog fashion photo (keep the outfit, background, pose, and lighting EXACTLY as they are).
-INPUT IMAGE 2: User face reference.
+      const item = createTemporaryImageUrl(buffer, mimeType || 'image/jpeg', publicBaseUrl, label);
+      temporaryTokens.push(item.token);
+      return item.url;
+    });
 
-INSTRUCTION: You MUST completely replace the head and face of the model in INPUT IMAGE 1 with the exact face, facial features, eyes, nose, lips, jawline, and hair from INPUT IMAGE 2. The final person in the generated image must look 100% like the person in INPUT IMAGE 2. Do not keep the original model's face at all. Maintain high photorealism, matching skin tone seamlessly to the neck.`;
+    const submitted = await requestNanoBananaJson(`${NANOBANANA_API_BASE}/generate`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt,
+        type: 'IMAGETOIAMGE',
+        numImages: 1,
+        imageUrls,
+        image_size: imageSize,
+        callBackUrl: callbackUrl
+      })
+    });
 
     const taskId = submitted?.data?.taskId || submitted?.taskId;
     if (Number(submitted?.code) !== 200 || !taskId) {
@@ -547,15 +530,15 @@ INSTRUCTION: You MUST completely replace the head and face of the model in INPUT
 
       if (flag === 1) {
         resultImageUrl = task?.response?.resultImageUrl || task?.data?.response?.resultImageUrl || '';
-        if (!resultImageUrl) throw httpError('NanoBananaAPI marked the task successful but returned no result image URL.', 502);
+        if (!resultImageUrl) throw httpError('NanoBananaAPI returned no result image URL.', 502);
         break;
       }
       if (flag === 2 || flag === 3) {
-        throw httpError(task?.errorMessage || task?.msg || 'NanoBananaAPI image generation failed. Check your account credits and input images.', 502);
+        throw httpError(task?.errorMessage || task?.msg || 'NanoBananaAPI image generation failed.', 502);
       }
     }
 
-    if (!resultImageUrl) throw httpError('NanoBananaAPI generation timed out after 5 minutes. Please try again.', 504);
+    if (!resultImageUrl) throw httpError('NanoBananaAPI generation timed out.', 504);
 
     let resultUrl;
     try {
@@ -571,9 +554,10 @@ INSTRUCTION: You MUST completely replace the head and face of the model in INPUT
     } catch (error) {
       throw httpError(`Could not download NanoBananaAPI result image: ${error?.message || 'network error'}`, 502);
     }
-    if (!imageResponse.ok) throw httpError(`Could not download the generated image (HTTP ${imageResponse.status}).`, 502);
+    if (!imageResponse.ok) throw httpError(`Could not download generated image (HTTP ${imageResponse.status}).`, 502);
     const contentLength = Number(imageResponse.headers.get('content-length') || 0);
-    if (contentLength > MAX_PROVIDER_IMAGE_BYTES) throw httpError('Generated image exceeds the 30 MB safety limit.', 502);
+    if (contentLength > MAX_PROVIDER_IMAGE_BYTES) throw httpError('Generated image exceeds size limit.', 502);
+    
     const chunks = [];
     let downloadedBytes = 0;
     if (!imageResponse.body) throw httpError('Generated image response was empty.', 502);
@@ -584,14 +568,15 @@ INSTRUCTION: You MUST completely replace the head and face of the model in INPUT
       downloadedBytes += value.byteLength;
       if (downloadedBytes > MAX_PROVIDER_IMAGE_BYTES) {
         await reader.cancel().catch(() => {});
-        throw httpError('Generated image exceeds the 30 MB safety limit.', 502);
+        throw httpError('Generated image exceeds size limit.', 502);
       }
       chunks.push(Buffer.from(value));
     }
     if (!downloadedBytes) throw httpError('Generated image is empty.', 502);
     const resultBuffer = Buffer.concat(chunks, downloadedBytes);
     const mimeType = (imageResponse.headers.get('content-type') || '').split(';')[0].trim();
-    if (!mimeType.startsWith('image/')) throw httpError('NanoBananaAPI result URL did not return an image.', 502);
+    if (!mimeType.startsWith('image/')) throw httpError('Result URL did not return an image.', 502);
+
     const debug = {
       taskId,
       imagesSent: temporaryTokens.map((t, i) => {
@@ -607,9 +592,6 @@ INSTRUCTION: You MUST completely replace the head and face of the model in INPUT
   }
 }
 
-// Frontend catalog cards render at aspect 3:4 with object-cover + object-top.
-// Every image the backend sends to / returns from the provider uses the same framing,
-// so generated try-ons line up exactly with the catalog photos shown in the UI.
 const CATALOG_ASPECT_W = 3;
 const CATALOG_ASPECT_H = 4;
 function fitToCatalogFrame(buffer, width) {
@@ -617,9 +599,7 @@ function fitToCatalogFrame(buffer, width) {
   return sharp(buffer).rotate().resize(width, height, { fit: 'cover', position: 'top' });
 }
 
-// ================= BATCH VIRTUAL TRY-ON ENDPOINT (UP TO 4 PRODUCTS) =================
-// Creates a 2x2 catalog contact sheet, sends it with the user's face to NanoBananaAPI,
-// then crops the returned grid back into the matching product cards.
+// ================= BATCH VIRTUAL TRY-ON ENDPOINT =================
 app.post('/api/tryon/generate-batch', async (req, res) => {
   try {
     const { profileId, userFaceBase64, userFaceMimeType, products, promptText } = req.body;
@@ -634,7 +614,7 @@ app.post('/api/tryon/generate-batch', async (req, res) => {
     }
     const faceMime = userFaceMimeType || 'image/jpeg';
     if (!ALLOWED_MIME_TYPES.includes(faceMime)) {
-      return res.status(400).json({ error: `Invalid face image MIME type. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}.` });
+      return res.status(400).json({ error: `Invalid face image MIME type.` });
     }
     const faceInput = decodeBase64Image(userFaceBase64, 'userFaceBase64');
     const faceBuffer = await sharp(faceInput).rotate().resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
@@ -642,7 +622,7 @@ app.post('/api/tryon/generate-batch', async (req, res) => {
     const productMap = [];
     const catalogBuffers = [];
     const cellW0 = 480;
-    const cellH0 = (cellW0 * CATALOG_ASPECT_H) / CATALOG_ASPECT_W; // 640
+    const cellH0 = (cellW0 * CATALOG_ASPECT_H) / CATALOG_ASPECT_W;
     for (let index = 0; index < products.length; index += 1) {
       const product = products[index];
       if (!product || !Number.isSafeInteger(Number(product.productId)) || Number(product.productId) < 1) {
@@ -654,7 +634,6 @@ app.post('/api/tryon/generate-batch', async (req, res) => {
       productMap.push({ productId: Number(product.productId), index });
     }
 
-    // One product => send that catalog photo alone (no grid, no blank cells).
     const singleProduct = catalogBuffers.length === 1;
     const composite = singleProduct
       ? catalogBuffers[0]
@@ -681,21 +660,15 @@ app.post('/api/tryon/generate-batch', async (req, res) => {
     const generatedMeta = await sharp(generated.buffer).metadata();
     const { width, height } = generatedMeta;
     if (!width || !height || width < 2 || height < 2) {
-      return res.status(422).json({ error: 'Generated image has invalid dimensions; no catalog images were changed.' });
+      return res.status(422).json({ error: 'Generated image has invalid dimensions.' });
     }
     const expectedRatio = CATALOG_ASPECT_W / CATALOG_ASPECT_H;
     if (Math.abs(width / height - expectedRatio) / expectedRatio > 0.15) {
-      return res.status(422).json({
-        error: 'Generated image aspect ratio is unexpected for a 3:4 2×2 grid; original catalog images were kept.',
-        details: `Received ${width}×${height}; expected a roughly 3:4 portrait image.`
-      });
+      return res.status(422).json({ error: 'Generated image aspect ratio is unexpected.' });
     }
 
     const cellW = singleProduct ? width : Math.floor(width / 2);
     const cellH = singleProduct ? height : Math.floor(height / 2);
-    if (cellW < 64 || cellH < 64) {
-      return res.status(422).json({ error: 'Generated grid cells are too small; original catalog images were kept.' });
-    }
 
     const results = await Promise.all(productMap.map(async ({ productId, index }) => {
       const cell = singleProduct
